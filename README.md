@@ -27,3 +27,7 @@ Replace:
 README.md is optional.
 
 No build step is required.
+
+
+## V2.1 cache fix
+`index.html` loads CSS and JS with `?v=2.1.0` cache-busting parameters so GitHub Pages/browser caches cannot mix V1 and V2 assets after deployment.
