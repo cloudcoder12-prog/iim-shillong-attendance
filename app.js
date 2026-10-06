@@ -3,6 +3,11 @@ const KEY = "iim-shillong-attendance-v1"; // preserve existing attendance // Kee
 let state = load();
 let currentPage = "dashboard";
 let dark = localStorage.getItem("iim-s6-theme")==="dark";
+let attendanceSubjectFilter = window.attendanceSubjectFilter || "ALL";
+let attendanceDateFilter = window.attendanceDateFilter || "";
+let attendanceStatusFilter = window.attendanceStatusFilter || "ALL";
+let lastAction = null;
+
 
 function load(){const s=localStorage.getItem(KEY);if(s){try{const x=JSON.parse(s);x.rules=x.rules||{4:3,2:2};x.attendance=x.attendance||{};return x}catch(e){}}const x=structuredClone(INITIAL);x.attendance={};return x}
 function save(){localStorage.setItem(KEY,JSON.stringify(state))}
@@ -18,38 +23,81 @@ function toast(msg){const r=document.getElementById("toastRoot");r.innerHTML=`<d
 function page(title,sub,body){return `<div class="wrap"><div class="hero"><div><h1>${title}</h1><p>${sub}</p></div></div>${body}</div>`}
 function render(){applyTheme();document.querySelectorAll(".nav-item[data-page]").forEach(b=>b.classList.toggle("active",b.dataset.page===currentPage));const labels={dashboard:"Attendance overview",timetable:"Your class schedule",attendance:"Mark and review attendance",editor:"Manage your timetable",settings:"Rules, backup and appearance"};document.getElementById("pageContext").textContent=labels[currentPage];document.getElementById("app").innerHTML=currentPage==="dashboard"?dashboard():currentPage==="timetable"?timetable():currentPage==="attendance"?attendancePage():currentPage==="editor"?editor():settings();bind()}
 function dashboard(){
- const codes=Object.keys(state.subjects), xs=codes.map(stats), held=xs.reduce((a,x)=>a+x.marked,0), present=xs.reduce((a,x)=>a+x.present,0), absent=xs.reduce((a,x)=>a+x.absent,0), pct=held?present/held*100:0;
+ const codes=Object.keys(state.subjects);
+ const xs=codes.map(stats);
+ const held=xs.reduce((a,x)=>a+x.marked,0), present=xs.reduce((a,x)=>a+x.present,0), absent=xs.reduce((a,x)=>a+x.absent,0), pct=held?present/held*100:0;
+ const todayEvents=state.events.filter(e=>e.date===today()).sort((a,b)=>a.slot.localeCompare(b.slot));
  const next=state.events.filter(e=>e.date>=today()).sort((a,b)=>(a.date+a.slot).localeCompare(b.date+b.slot))[0];
- const upcoming=state.events.filter(e=>e.date>=today()).sort((a,b)=>(a.date+a.slot).localeCompare(b.date+b.slot)).slice(0,6);
+ const attention=codes.filter(c=>{const x=stats(c);return x.marked&&x.remaining<=1}).map(c=>({code:c,x:stats(c)}));
  const radius=52,circ=2*Math.PI*radius,offset=circ-(Math.min(100,pct)/100*circ);
- return page("Attendance Dashboard","A quick view of where you stand and how many classes you can still miss.",`
+ const safe=xs.filter(x=>x.marked&&x.remaining>1).length;
+ const critical=xs.filter(x=>x.marked&&x.remaining<=0).length;
+ return page("Attendance Dashboard","Your daily attendance cockpit — mark today's classes, check risk, and see whether you can afford the next absence.",`
  <div class="grid cards">
   <div class="card kpi"><div class="label">Overall attendance</div><div class="metric">${held?pct.toFixed(1):"0.0"}%</div><div class="subnote">${present} present • ${absent} absent • ${held} marked</div></div>
-  <div class="card kpi"><div class="label">Classes marked</div><div class="metric">${held}</div><div class="subnote">${state.events.length} timetable classes loaded</div></div>
-  <div class="card kpi"><div class="label">Courses</div><div class="metric">${codes.length}</div><div class="subnote">4-credit + 2-credit courses</div></div>
+  <div class="card kpi"><div class="label">Today's classes</div><div class="metric">${todayEvents.length}</div><div class="subnote">${todayEvents.filter(e=>state.attendance[e.id]).length} marked today</div></div>
+  <div class="card kpi"><div class="label">Courses</div><div class="metric">${codes.length}</div><div class="subnote">${safe} comfortable • ${critical} critical</div></div>
   <div class="card kpi"><div class="label">Next class</div><div class="metric" style="font-size:17px">${next?esc(subj(next.subject).name):"—"}</div><div class="subnote">${next?fmtDate(next.date)+" • "+next.slot:"No upcoming class"}</div></div>
  </div>
+
  <div class="grid overview-grid" style="margin-top:16px">
   <div class="card donut-card">
    <div class="donut"><svg viewBox="0 0 120 120"><circle class="track" cx="60" cy="60" r="${radius}"/><circle class="fill" cx="60" cy="60" r="${radius}" stroke-dasharray="${circ}" stroke-dashoffset="${offset}"/></svg><div class="donut-center"><b>${held?pct.toFixed(0):"0"}%</b><span>attendance</span></div></div>
-   <div><div class="label">Overall health</div><h2 style="margin:6px 0">${!held?"Start marking classes":pct>=85?"You're in a good zone":pct>=75?"Keep an eye on attendance":"Attendance needs attention"}</h2><div class="subnote">Your limits are applied course-by-course.</div></div>
+   <div><div class="label">Overall health</div><h2 style="margin:6px 0">${!held?"Start marking classes":pct>=85?"You're in a good zone":pct>=75?"Keep an eye on attendance":"Attendance needs attention"}</h2><div class="subnote">Leave limits are calculated separately for each course.</div></div>
   </div>
-  <div class="card"><div class="section-title" style="margin:0 0 12px"><h2>Next class</h2><span class="pill ${next?"good":"neutral"}">${next?"Scheduled":"None"}</span></div>
-  ${next?`<div class="next-card"><div><div class="subject-name">${esc(subj(next.subject).name)}</div><div class="next-time">${fmtDate(next.date)} • ${next.slot} • ${esc(next.teacher)}</div><div class="subnote" style="margin-top:6px">${esc(next.venue||"NAB Room-108")}</div></div><div class="next-arrow">→</div></div>`:`<div class="empty">No upcoming classes.</div>`}
+  <div class="card"><div class="section-title" style="margin:0 0 12px"><h2>Can I miss my next class?</h2><span class="pill ${next?"good":"neutral"}">${next?"Check now":"No class"}</span></div>
+   ${next?missCalculator(next):`<div class="empty">No upcoming class found.</div>`}
   </div>
  </div>
- <div class="section-title"><h2>Subject-wise attendance</h2><span class="hint">Green = leave available • Amber = no leave left • Red = limit exceeded</span></div>
+
+ <div class="section-title"><h2>Today — ${new Date().toLocaleDateString("en-IN",{day:"2-digit",month:"long"})}</h2><button class="small-btn" data-go="attendance">Open full attendance</button></div>
+ <div class="today-list">${todayEvents.length?todayEvents.map(todayClass).join(""):`<div class="card empty">No scheduled classes today.</div>`}</div>
+
+ ${attention.length?`<div class="section-title"><h2>⚠️ Subjects needing attention</h2><span class="hint">${attention.length} subject${attention.length===1?"":"s"} with 1 or fewer misses left</span></div><div class="grid subject-grid">${attention.map(a=>subjectCard(a.code)).join("")}</div>`:""}
+
+ <div class="section-title"><h2>All subjects</h2><span class="hint">Tap a subject to review its attendance history</span></div>
  <div class="grid subject-grid">${codes.map(subjectCard).join("")}</div>
- <div class="section-title"><h2>Upcoming classes</h2><button class="small-btn" data-go="attendance">Open attendance</button></div>
- <div class="table-wrap"><table class="data"><thead><tr><th>Date</th><th>Time</th><th>Subject</th><th>Faculty</th><th>Status</th></tr></thead><tbody>${upcoming.map(e=>`<tr><td>${fmtDate(e.date)}</td><td>${e.slot}</td><td><b>${esc(subj(e.subject).name)}</b></td><td>${esc(e.teacher)}</td><td>${badge(state.attendance[e.id])}</td></tr>`).join("")}</tbody></table></div>
  `)
+}
+
+function todayClass(e){
+ const s=subj(e.subject),v=state.attendance[e.id];
+ return `<div class="card today-class">
+  <div><div class="time-big">${esc(e.slot)}</div><div class="subject-name">${esc(s.name)}</div><div class="subject-meta">${esc(e.teacher)} • ${esc(e.venue||"NAB Room-108")}</div></div>
+  <div class="today-actions">${v?badge(v):`<button class="att-btn present" data-att="${e.id}" data-val="P">✓ Present</button><button class="att-btn absent" data-att="${e.id}" data-val="A">✕ Absent</button>`}</div>
+ </div>`
+}
+
+function missCalculator(next){
+ const x=stats(next.subject),s=subj(next.subject);
+ const current=x.marked?x.pct:0;
+ const afterHeld=x.marked+1,afterPresent=x.present,afterAbsent=x.absent+1;
+ const afterPct=afterHeld?afterPresent/afterHeld*100:0;
+ const afterRemaining=Math.max(0,x.max-afterAbsent);
+ const can=x.absent<x.max;
+ const cls=can?"good":"bad";
+ return `<div class="miss-box">
+  <div class="miss-course"><b>${esc(s.name)}</b><span>${fmtDate(next.date)} • ${next.slot}</span></div>
+  <div class="miss-stats"><div><small>Current</small><strong>${x.marked?current.toFixed(1):"—"}%</strong></div><div class="arrow-stat">→</div><div><small>If absent</small><strong class="${cls}">${afterPct.toFixed(1)}%</strong></div><div><small>Misses left</small><strong class="${cls}">${afterRemaining}</strong></div></div>
+  <div class="miss-result ${cls}">${can?"🟢 You can miss this class":"🔴 Don't miss this class"}</div>
+  <button class="soft-btn full-width" data-check-next="${next.id}">Open this class in Attendance</button>
+ </div>`
 }
 function subjectCard(code){
  const x=stats(code),s=subj(code),st=status(x),p=x.pct;
- return `<div class="card subject-card"><div class="subject-head"><div><div class="subject-name">${esc(s.name)}</div><div class="subject-meta">${code} • ${s.credits} credits • ${esc(s.teacher)}</div></div><span class="pill ${st.cls}">${x.marked?p.toFixed(1)+"%":"—"} · ${st.text}</span></div><div class="progress"><div class="bar ${st.cls}" style="width:${Math.min(100,p)}%"></div></div><div class="subject-bottom"><span>${x.present} present • ${x.absent} absent • ${x.marked} marked</span><span class="leave">${x.remaining} ${x.remaining===1?"class":"classes"} left</span></div></div>`
+ const next=state.events.filter(e=>e.subject===code && e.date>=today()).sort((a,b)=>(a.date+a.slot).localeCompare(b.date+b.slot))[0];
+ return `<div class="card subject-card subject-click" data-subject-card="${code}">
+  <div class="subject-head"><div><div class="subject-name">${esc(s.name)}</div><div class="subject-meta">${code} • ${s.credits} credits • ${esc(s.teacher)}</div></div><span class="pill ${st.cls}">${x.marked?p.toFixed(1)+"%":"—"} · ${st.text}</span></div>
+  <div class="progress"><div class="bar ${st.cls}" style="width:${Math.min(100,p)}%"></div></div>
+  <div class="subject-bottom"><span>${x.present} present • ${x.absent} absent • ${x.marked} marked</span><span class="leave">${x.remaining} ${x.remaining===1?"class":"classes"} left</span></div>
+  ${next?`<div class="subject-next">Next: ${fmtDate(next.date)} • ${next.slot}</div>`:""}
+ </div>`
 }
 function badge(v){return v==="P"?'<span class="pill good">✓ Present</span>':v==="A"?'<span class="pill bad">✕ Absent</span>':'<span class="pill neutral">Not marked</span>'}
-function classCard(e){const s=subj(e.subject),v=state.attendance[e.id];return `<div class="class-chip"><b>${esc(s.name)}</b><span class="chip-time">${e.slot}</span><br>${esc(e.teacher)}<div class="action-row"><button class="att-btn present" data-att="${e.id}" data-val="P">${v==="P"?"✓ Present":"Present"}</button><button class="att-btn absent" data-att="${e.id}" data-val="A">${v==="A"?"✕ Absent":"Absent"}</button></div></div>`}
+function classCard(e){
+ const s=subj(e.subject);
+ return `<div class="class-chip"><b>${esc(s.name)}</b><span class="chip-time">${e.slot}</span><br>${esc(e.teacher)}${e.venue?`<br><span style="opacity:.8">${esc(e.venue)}</span>`:""}</div>`
+}
 function timetable(){
  const start=new Date("2026-10-05T00:00:00"),end=new Date("2026-12-24T00:00:00");let weeks=[];
  for(let d=new Date(start);d<=end;d.setDate(d.getDate()+7)){let w=[];for(let i=0;i<7;i++){let x=new Date(d);x.setDate(d.getDate()+i);w.push(x.toISOString().slice(0,10))}weeks.push(w)}
@@ -58,14 +106,25 @@ function timetable(){
  ${weeks.map((w,wi)=>`<div class="section-title"><h2>Week ${wi+1}</h2></div><div class="calendar">${w.map(d=>{const ev=state.events.filter(e=>e.date===d).sort((a,b)=>a.slot.localeCompare(b.slot)),sp=state.specials.filter(x=>x.date===d);return `<div class="day ${d===today()?"today":""}"><div class="day-head">${dayName(d)} <span class="day-date">${fmtDate(d)}</span></div>${sp.map(x=>`<div class="class-chip special"><b>${esc(x.title)}</b>${esc(x.note||"")}</div>`).join("")}${ev.length?ev.map(classCard).join(""):`<div class="empty" style="padding:22px 5px;font-size:11px">No class</div>`}</div>`}).join("")}</div>`).join("")}`)
 }
 function attendancePage(){
- let filter=document.getElementById("subjectFilter")?.value||"ALL",df=document.getElementById("dateFilter")?.value||"";
- let events=[...state.events].sort((a,b)=>(a.date+a.slot).localeCompare(b.date+b.slot));if(filter!=="ALL")events=events.filter(e=>e.subject===filter);if(df)events=events.filter(e=>e.date===df);
+ let filter=window.attendanceSubjectFilter||"ALL",df=window.attendanceDateFilter||"",sf=window.attendanceStatusFilter||"ALL";
+ let events=[...state.events].sort((a,b)=>(a.date+a.slot).localeCompare(b.date+b.slot));
+ if(filter!=="ALL")events=events.filter(e=>e.subject===filter);
+ if(df)events=events.filter(e=>e.date===df);
+ if(sf==="PRESENT")events=events.filter(e=>state.attendance[e.id]==="P");
+ if(sf==="ABSENT")events=events.filter(e=>state.attendance[e.id]==="A");
+ if(sf==="UNMARKED")events=events.filter(e=>!state.attendance[e.id]);
  const codes=Object.keys(state.subjects);
  return page("Attendance","Mark present/absent for today or correct any previous class.",`
- <div class="filters"><select class="select" id="subjectFilter"><option value="ALL">All subjects</option>${codes.map(c=>`<option value="${c}" ${filter===c?"selected":""}>${esc(subj(c).name)}</option>`).join("")}</select><input class="input" id="dateFilter" type="date" value="${df}"><button class="small-btn" id="clearDate">Clear date</button></div>
- <div class="table-wrap"><table class="data"><thead><tr><th>Date</th><th>Time</th><th>Subject</th><th>Faculty</th><th>Credits</th><th>Status</th><th>Mark</th></tr></thead><tbody>${events.map(e=>`<tr><td>${fmtDate(e.date)}</td><td>${e.slot}</td><td><b>${esc(subj(e.subject).name)}</b></td><td>${esc(e.teacher)}</td><td>${e.credits}</td><td>${badge(state.attendance[e.id])}</td><td><button class="att-btn present" data-att="${e.id}" data-val="P">Present</button><button class="att-btn absent" data-att="${e.id}" data-val="A">Absent</button><button class="att-btn unset" data-att="${e.id}" data-val="">Reset</button></td></tr>`).join("")}</tbody></table></div>
+ <div class="filters">
+  <select class="select" id="subjectFilter"><option value="ALL">All subjects</option>${codes.map(c=>`<option value="${c}" ${filter===c?"selected":""}>${esc(subj(c).name)}</option>`).join("")}</select>
+  <input class="input" id="dateFilter" type="date" value="${df}">
+  <select class="select" id="statusFilter"><option value="ALL" ${sf==="ALL"?"selected":""}>All status</option><option value="UNMARKED" ${sf==="UNMARKED"?"selected":""}>Not marked</option><option value="PRESENT" ${sf==="PRESENT"?"selected":""}>Present</option><option value="ABSENT" ${sf==="ABSENT"?"selected":""}>Absent</option></select>
+  <button class="small-btn" id="clearDate">Clear filters</button>
+ </div>
+ <div class="table-wrap"><table class="data"><thead><tr><th>Date</th><th>Time</th><th>Subject</th><th>Faculty</th><th>Credits</th><th>Status</th><th>Mark</th></tr></thead><tbody>${events.length?events.map(e=>`<tr><td>${fmtDate(e.date)}</td><td>${e.slot}</td><td><b>${esc(subj(e.subject).name)}</b></td><td>${esc(e.teacher)}</td><td>${e.credits}</td><td>${badge(state.attendance[e.id])}</td><td><button class="att-btn present" data-att="${e.id}" data-val="P">Present</button><button class="att-btn absent" data-att="${e.id}" data-val="A">Absent</button><button class="att-btn unset" data-att="${e.id}" data-val="">Reset</button></td></tr>`).join(""):`<tr><td colspan="7"><div class="empty">No classes match these filters.</div></td></tr>`}</tbody></table></div>
  <div class="section-title"><h2>Attendance history</h2><span class="hint">Each square is a timetable class</span></div>
- <div class="card"><div class="heatmap">${state.events.map(e=>`<span class="heat-cell ${state.attendance[e.id]==="P"?"p":state.attendance[e.id]==="A"?"a":"u"}" title="${fmtDate(e.date)} • ${esc(subj(e.subject).name)}"></span>`).join("")}</div><div class="legend"><span><i class="lp"></i> Present</span><span><i class="la"></i> Absent</span><span><i></i> Not marked</span></div></div>`)
+ <div class="card"><div class="heatmap">${state.events.map(e=>`<span class="heat-cell ${state.attendance[e.id]==="P"?"p":state.attendance[e.id]==="A"?"a":"u"}" title="${fmtDate(e.date)} • ${esc(subj(e.subject).name)}"></span>`).join("")}</div><div class="legend"><span><i class="lp"></i> Present</span><span><i class="la"></i> Absent</span><span><i></i> Not marked</span></div></div>
+ `)
 }
 function editor(){
  return page("Edit Timetable","Update future classes when the institute releases a revised schedule. Your attendance data is preserved.",`
@@ -91,13 +150,27 @@ function openSubject(code){const s=state.subjects[code]||{name:"",teacher:"",cre
 function exportData(){const blob=new Blob([JSON.stringify(state,null,2)],{type:"application/json"}),a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="iim-shillong-section-6-backup.json";a.click();URL.revokeObjectURL(a.href);toast("Backup exported")}
 function importData(ev){const f=ev.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const x=JSON.parse(r.result);if(!x.events||!x.subjects)throw Error();state=x;save();render();toast("Backup imported")}catch(e){alert("Invalid backup file.")}};r.readAsText(f)}
 function toggleTheme(){dark=!dark;localStorage.setItem("iim-s6-theme",dark?"dark":"light");applyTheme();render()}
+function showUndo(msg,id,previous){
+ const r=document.getElementById("toastRoot");
+ r.innerHTML=`<div class="toast">${esc(msg)} <button id="undoBtn" style="margin-left:10px;border:0;border-radius:7px;padding:5px 8px;font-weight:800;cursor:pointer">Undo</button></div>`;
+ const b=document.getElementById("undoBtn");
+ if(b)b.onclick=()=>{if(previous)state.attendance[id]=previous;else delete state.attendance[id];save();render();toast("Undone")};
+ setTimeout(()=>{if(r.querySelector("#undoBtn"))r.innerHTML=""},5000);
+}
 function bind(){
  document.querySelectorAll("[data-page]").forEach(x=>x.onclick=()=>{currentPage=x.dataset.page;document.getElementById("sidebar").classList.remove("open");render()});
  document.querySelectorAll("[data-go]").forEach(x=>x.onclick=()=>{currentPage=x.dataset.go;render()});
- document.querySelectorAll("[data-att]").forEach(x=>x.onclick=()=>{if(x.dataset.val)state.attendance[x.dataset.att]=x.dataset.val;else delete state.attendance[x.dataset.att];save();render();toast(x.dataset.val==="P"?"Marked present":"Marked absent")});
- const sf=document.getElementById("subjectFilter");if(sf)sf.onchange=render;
- const df=document.getElementById("dateFilter");if(df)df.onchange=render;
- const cd=document.getElementById("clearDate");if(cd)cd.onclick=()=>{currentPage="attendance";render()};
+ document.querySelectorAll("[data-att]").forEach(x=>x.onclick=()=>{
+   const id=x.dataset.att, previous=state.attendance[id];
+   if(x.dataset.val)state.attendance[id]=x.dataset.val;else delete state.attendance[id];
+   save();render();
+   const msg=x.dataset.val==="P"?"Marked present":x.dataset.val==="A"?"Marked absent":"Attendance reset";
+   showUndo(msg,id,previous);
+ });
+ const sf=document.getElementById("subjectFilter");if(sf)sf.onchange=()=>{window.attendanceSubjectFilter=sf.value;render()};
+ const df=document.getElementById("dateFilter");if(df)df.onchange=()=>{window.attendanceDateFilter=df.value;render()};
+ const statusF=document.getElementById("statusFilter");if(statusF)statusF.onchange=()=>{window.attendanceStatusFilter=statusF.value;render()};
+ const cd=document.getElementById("clearDate");if(cd)cd.onclick=()=>{window.attendanceSubjectFilter="ALL";window.attendanceDateFilter="";window.attendanceStatusFilter="ALL";currentPage="attendance";render();toast("Filters cleared")};
  const ae=document.getElementById("addEvent");if(ae)ae.onclick=()=>openEvent();
  document.querySelectorAll("[data-edit]").forEach(x=>x.onclick=()=>openEvent(x.dataset.edit));
  document.querySelectorAll("[data-delete]").forEach(x=>x.onclick=()=>{if(confirm("Delete this class?")){state.events=state.events.filter(e=>e.id!==x.dataset.delete);save();render();toast("Class deleted")}});
@@ -108,9 +181,12 @@ function bind(){
  const imp=document.getElementById("importFile");if(imp)imp.onchange=importData;
  const rb=document.getElementById("resetBtn");if(rb)rb.onclick=()=>{if(confirm("Reset timetable AND attendance to the original Section 6 data?")){state=structuredClone(INITIAL);state.attendance={};save();render();toast("Reset complete")}};
  const st=document.getElementById("settingsTheme");if(st)st.onclick=toggleTheme;
+ const nc=document.querySelector("[data-next-date]");if(nc)nc.onclick=()=>{window.attendanceDateFilter=nc.dataset.nextDate;currentPage="attendance";render()};
+ document.querySelectorAll("[data-check-next]").forEach(x=>x.onclick=()=>{const e=state.events.find(z=>z.id===x.dataset.checkNext);if(e){window.attendanceDateFilter=e.date;window.attendanceSubjectFilter=e.subject;window.attendanceStatusFilter="ALL";currentPage="attendance";render()}});
+ document.querySelectorAll("[data-subject-card]").forEach(x=>x.onclick=()=>{window.attendanceSubjectFilter=x.dataset.subjectCard;window.attendanceDateFilter="";window.attendanceStatusFilter="ALL";currentPage="attendance";render()});
  document.getElementById("themeBtn").onclick=toggleTheme;document.getElementById("mobileTheme").onclick=toggleTheme;
 }
 document.getElementById("menuBtn").onclick=()=>document.getElementById("sidebar").classList.toggle("open");
-document.getElementById("todayBtn").onclick=()=>{currentPage="attendance";render();setTimeout(()=>{const d=document.getElementById("dateFilter");if(d){d.value=today();d.onchange()}},0)};
+document.getElementById("todayBtn").onclick=()=>{window.attendanceDateFilter=today();window.attendanceSubjectFilter="ALL";window.attendanceStatusFilter="ALL";currentPage="attendance";render()};
 document.getElementById("exportBtn").onclick=exportData;
 render();
