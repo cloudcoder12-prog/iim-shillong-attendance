@@ -3,22 +3,51 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>IIM Shillong • Attendance Tracker</title>
+<meta name="theme-color" content="#0d1b2a">
+<title>IIM Shillong • Section 6 Attendance</title>
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-<header class="topbar">
-  <div><div class="brand">IIM Shillong</div><div class="subtitle">PGP 2026–28 • Term II • Section 6</div></div>
-  <div class="top-actions"><button class="ghost" id="todayBtn">Today</button><button class="primary" id="exportBtn">Export Backup</button></div>
-</header>
-<nav class="tabs">
-  <button class="tab active" data-page="dashboard">Dashboard</button>
-  <button class="tab" data-page="timetable">Timetable</button>
-  <button class="tab" data-page="attendance">Attendance</button>
-  <button class="tab" data-page="editor">Edit Timetable</button>
-  <button class="tab" data-page="settings">Settings</button>
-</nav>
-<main id="app"></main>
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar">
+    <div class="brand-wrap">
+      <div class="brand-mark">I</div>
+      <div><div class="brand">IIM Shillong</div><div class="brand-sub">PGP 2026–28 • Term II</div></div>
+    </div>
+    <div class="section-chip">SECTION 6</div>
+    <nav class="side-nav">
+      <button class="nav-item active" data-page="dashboard"><span>⌂</span> Dashboard</button>
+      <button class="nav-item" data-page="timetable"><span>▦</span> Timetable</button>
+      <button class="nav-item" data-page="attendance"><span>✓</span> Attendance</button>
+      <button class="nav-item" data-page="editor"><span>✎</span> Edit Timetable</button>
+      <button class="nav-item" data-page="settings"><span>⚙</span> Settings</button>
+    </nav>
+    <div class="sidebar-bottom">
+      <div class="mini-note"><b>Attendance rules</b><br>4 credits → 3 misses<br>2 credits → 2 misses</div>
+      <button class="nav-item theme-btn" id="themeBtn"><span id="themeIcon">☾</span> Dark mode</button>
+    </div>
+  </aside>
+
+  <div class="main-area">
+    <header class="mobile-header">
+      <button class="icon-btn" id="menuBtn">☰</button>
+      <div><b>IIM Shillong</b><small>Section 6</small></div>
+      <button class="icon-btn" id="mobileTheme">☾</button>
+    </header>
+    <div class="topbar">
+      <div>
+        <div class="eyebrow">TERM II • SECTION 6</div>
+        <div class="page-context" id="pageContext">Attendance overview</div>
+      </div>
+      <div class="top-actions">
+        <button class="soft-btn" id="todayBtn">Today</button>
+        <button class="gold-btn" id="exportBtn">↧ Backup</button>
+      </div>
+    </div>
+    <main id="app"></main>
+  </div>
+</div>
+<div id="toastRoot"></div>
 <div id="modalRoot"></div>
 <script src="app.js"></script>
 </body>
