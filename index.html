@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>IIM Shillong • Attendance Tracker</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="topbar">
+  <div><div class="brand">IIM Shillong</div><div class="subtitle">PGP 2026–28 • Term II • Section 6</div></div>
+  <div class="top-actions"><button class="ghost" id="todayBtn">Today</button><button class="primary" id="exportBtn">Export Backup</button></div>
+</header>
+<nav class="tabs">
+  <button class="tab active" data-page="dashboard">Dashboard</button>
+  <button class="tab" data-page="timetable">Timetable</button>
+  <button class="tab" data-page="attendance">Attendance</button>
+  <button class="tab" data-page="editor">Edit Timetable</button>
+  <button class="tab" data-page="settings">Settings</button>
+</nav>
+<main id="app"></main>
+<div id="modalRoot"></div>
+<script src="app.js"></script>
+</body>
+</html>
